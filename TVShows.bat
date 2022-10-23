@@ -1,6 +1,9 @@
 	@echo off
-	
-::SET FOLDER/FiLE Names (final line replaces spaces with periods)
+
+::CLEANUP1: (Delete tmp dir)
+	if exist "cli\tmpdir" RMDIR /s /q cli\tmpdir
+
+::SET FOLDER/FiLE Names (To the current foldername) (final line replaces spaces with periods)
 	for %%t in (.) do (set foldername=%%~nt)
 	for %%t in (.) do (set finalfile=%%~nt.txt)
 	set finalfile=%finalfile: =.%
@@ -11,6 +14,17 @@
 	if exist *.mp4 (set filetype=mp4 & goto found) else (goto nomovies)
 	:found
 	
+::SET TEMP DIR
+	if not exist "cli\tmpdir" mkdir "cli\tmpdir" & set tmp=cli\tmpdir
+
+::SET EPiSODE 01
+	for %%i in (*E01*.%filetype%) do (set ep01=%%i)
+	
+::SET SCREENSHOT TIMES: Based on length
+	(cli\mediainfo "--Output=General;%%Duration%%" "%ep01%")>%tmp%\dur.tmp
+	(set /p durr=<%tmp%\dur.tmp)
+	(set /a t1 = %durr%/1000/4*1)&(set /a t2 = %durr%/1000/4*2)&(set /a t3 = %durr%/1000/4*3)
+	
 ::IMDB-URL-FILE-CHECK
 	if exist url.txt (set /p imdb-url=<url.txt & cls & echo url.txt found & echo. & goto imdb-file-found)
 	
@@ -20,15 +34,14 @@
 ::iMAGE-POSTER: Get From url.txt
 	:imdb-file-found
 	echo Working on it. Sit tight.
-	powershell -Command "(([uri]'%imdb-url%').Segments[-1]).Trim('/') | Out-File -encoding ASCII imdb.tmp"
-	set /p imdb-id=<imdb.tmp
-	powershell -Command "(Invoke-RestMethod -uri 'https://www.omdbapi.com/?i=%imdb-id%&apikey=e9498fb').Poster | Out-File img.tmp"
-	powershell -Command "(gc img.tmp) -replace '300.jpg', '900.jpg' | Out-File -encoding ASCII posterimg.tmp"
+	for /f "delims=" %%i in ('powershell -Command "(([uri]'%imdb-url%').Segments[-1]).Trim('/')"') DO SET "imdb-id=%%i"
+	powershell -Command "(Invoke-RestMethod -uri 'https://www.omdbapi.com/?i=%imdb-id%&apikey=e9498fb').Poster | Out-File %tmp%\img.tmp"
+	powershell -Command "(gc %tmp%\img.tmp) -replace '300.jpg', '900.jpg' | Out-File -encoding ASCII %tmp%\posterimg.tmp"
 	
 ::iMAGE-POSTER: Upload2Imgur
-	set /p amazurl=<posterimg.tmp
+	set /p amazurl=<%tmp%\posterimg.tmp
 	cli\shx\ShareX.exe "%amazurl%" -s -task "Upload2Imgur" -autoclose
-	powershell -Command "Get-Clipboard | Out-File -encoding ASCII imgurl.tmp"
+	for /f "delims=" %%i in ('powershell -Command "Get-Clipboard"') DO SET "imgurl=%%i"
 
 
 :: -- BEGiN WRiTING TO NFO -- ::
@@ -38,7 +51,6 @@
 	(echo [center][size=3][b]%foldername%[/size][/b] & echo.)>> %finalfile%
 
 ::iMAGE-POSTER:
-	set /p imgurl=<imgurl.tmp
 	(echo [img]%imgurl%[/img] & echo.)>> %finalfile%
 
 ::iNFO TAG: Center Start, Size Start, Bold Start:
@@ -53,13 +65,13 @@
 
 ::ViDEO BiTRATE: (Some MKV's don't have bitrate, so it pulls overall bitrate)
 	if %filetype%==mkv (set mnfo=General) else (set mnfo=Video)
-	for %%i in (*E01.*.%filetype%) do ((cli\mediainfo "--Output=%mnfo%;ViDEO: %%BitRate/String%%" "%%i") & echo.)>> %finalfile%
+	(cli\mediainfo "--Output=%mnfo%;ViDEO: %%BitRate/String%%" "%ep01%" & echo.)>> %finalfile%
 
 ::ViDEO RESOLUTiON:
-	for %%i in (*E01.*.%filetype%) do ((cli\mediainfo "--Output=Video;RESOLUTiON: %%Width%%x%%Height%%" "%%i") & echo.)>> %finalfile%
+	(cli\mediainfo "--Output=Video;RESOLUTiON: %%Width%%x%%Height%%" "%ep01%" & echo.)>> %finalfile%
 
 ::AUDiO iNFO:
-	for %%i in (*E01.*.%filetype%) do ((echo|set /p="AUDiO: " & cli\mediainfo cli\mediainfo "--Output=Audio;[%%BitRate/String%%, ][%%Format%%, ][%%Channel(s)/String%%]" "%%i") & echo.)>> %finalfile%
+	(echo|set /p="AUDiO: " & cli\mediainfo cli\mediainfo "--Output=Audio;[%%BitRate/String%%, ][%%Format%%, ][%%Channel(s)/String%%]" "%ep01%" & echo.)>> %finalfile%
 
 ::LANGUAGE:
 	(echo LANGUAGE: ENGLiSH & echo.)>> %finalfile%
@@ -84,30 +96,31 @@
 	(echo [plot] & echo.)>> %finalfile%
 
 ::PLOT:
-	powershell -Command "(Invoke-RestMethod -uri 'https://www.omdbapi.com/?i=%imdb-id%&apikey=e9498fb').plot | Out-File plot.tmp"
-	type plot.tmp >> %finalfile% & echo.>> %finalfile%
+	powershell -Command "(Invoke-RestMethod -uri 'https://www.omdbapi.com/?i=%imdb-id%&apikey=e9498fb').plot | Out-File %tmp%\plot.tmp"
+	type %tmp%\plot.tmp >> %finalfile% & echo.>> %finalfile%
 
 ::SCREENS Head
 	(echo [screens] & echo.)>> %finalfile%
 
 ::SCREENSHOTS-GENERATE
-	for %%h in (*E01.*.%filetype%) do (
-	cli\ffmpeg -skip_frame nokey -ss 00:03:00.00 -i "%%h" -frames:v 1 "01.png"
-	cli\ffmpeg -skip_frame nokey -ss 00:06:00.00 -i "%%h" -frames:v 1 "02.png"
-	cli\ffmpeg -skip_frame nokey -ss 00:07:00.00 -i "%%h" -frames:v 1 "03.png"
-	)
+	cli\ffmpeg -skip_frame nokey -ss %t1%.00 -i "%ep01%" -frames:v 1 "%tmp%\01.png"
+	cli\ffmpeg -skip_frame nokey -ss %t2%.00 -i "%ep01%" -frames:v 1 "%tmp%\02.png"
+	cli\ffmpeg -skip_frame nokey -ss %t3%.00 -i "%ep01%" -frames:v 1 "%tmp%\03.png"
+
+::SCREENSHOTS-CHECK
+	if not exist %tmp%\03.png (goto noscreens)
 
 ::SCREENSHOTS-UPLOAD
-	cls & echo Generating/Uploading Screenshots, this is slow
-	cli\shx\ShareX.exe 01.png -s -task "UploadLocal" -autoclose
-	powershell -Command "Get-Clipboard | Out-File -encoding ASCII screen1.tmp"
-	cli\shx\ShareX.exe 02.png -s -task "UploadLocal" -autoclose
-	powershell -Command "Get-Clipboard | Out-File -encoding ASCII screen2.tmp"
-	cli\shx\ShareX.exe 03.png -s -task "UploadLocal" -autoclose
-	powershell -Command "Get-Clipboard | Out-File -encoding ASCII screen3.tmp"
+	cls & echo Uploading Screenshots, this is slow
+	cli\shx\ShareX.exe %tmp%\01.png -s -task "UploadLocal" -autoclose
+	powershell -Command "Get-Clipboard | Out-File -encoding ASCII %tmp%\screen1.tmp"
+	cli\shx\ShareX.exe %tmp%\02.png -s -task "UploadLocal" -autoclose
+	powershell -Command "Get-Clipboard | Out-File -encoding ASCII %tmp%\screen2.tmp"
+	cli\shx\ShareX.exe %tmp%\03.png -s -task "UploadLocal" -autoclose
+	powershell -Command "Get-Clipboard | Out-File -encoding ASCII %tmp%\screen3.tmp"
 
 ::SCREENSHOTS-TO-NFO
-	set /p scrntmp1=<screen1.tmp & set /p scrntmp2=<screen2.tmp & set /p scrntmp3=<screen3.tmp
+	set /p scrntmp1=<%tmp%\screen1.tmp & set /p scrntmp2=<%tmp%\screen2.tmp & set /p scrntmp3=<%tmp%\screen3.tmp
 	(echo [img]%scrntmp1%[/img] & echo.)>> %finalfile%
 	(echo [img]%scrntmp2%[/img] & echo.)>> %finalfile%
 	(echo [img]%scrntmp3%[/img] & echo.)>> %finalfile%
@@ -123,14 +136,16 @@
 :: -- END WRiTING TO NFO -- ::
 
 
-::CLEANUP
-	del /s /q "*.tmp"
-	del /s /q "01.png" "02.png" "03.png"
+::CLEANUP2: (Delete tmp dir)
+	if exist "cli\tmpdir" RMDIR /s /q cli\tmpdir
 	start notepad "%finalfile%"
 	exit
 
 
 	
-::NO ViDEOS FOUND ERROR:
+::ERRORs:
 	:nomovies
 	cls & echo no MP4, AVI or MKV found & pause & exit
+	
+	:noscreens
+	cls & echo One or more screenshots are missing & pause & exit
