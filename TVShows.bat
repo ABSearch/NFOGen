@@ -25,8 +25,10 @@
 	(set /p durr=<%tmp%\dur.tmp)
 	(set /a t1 = %durr%/1000/4*1)&(set /a t2 = %durr%/1000/4*2)&(set /a t3 = %durr%/1000/4*3)
 	
-::IMDB-URL-FILE-CHECK
-	if exist url.txt (set /p imdb-url=<url.txt & cls & echo url.txt found & echo. & goto imdb-file-found)
+::IMDB-URL-CHECK
+	if exist url.txt (set /p imdb-url=<url.txt & cls & echo url.txt found & echo.)
+	for /f %%i in ("url.txt") do set size=%%~zi
+	if %size% gtr 0 (goto imdb-file-found) else (goto nourl)
 	
 ::iMAGE-POSTER: Get From IMDB URL
 	set /p imdb-url="IMDB URL: "
